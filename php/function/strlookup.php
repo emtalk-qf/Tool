@@ -2,7 +2,7 @@
 /**
  * 字符串查找
  * 
- * @access  protected
+ * @access  public
  * @version 0.0.1
  * @author  Yunuo <ciwdream@gmail.com>
  * 
