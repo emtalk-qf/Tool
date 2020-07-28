@@ -1,6 +1,6 @@
 <?php
-namespace App\Http\Sdk\Traits;
-use App\Helper\Unit\SlogUnit;
+namespace App\Sdk\Traits;
+use App\Helper\Unit\SlogUnit AS hLog;
 
 /**
  * SDK LOG日志处理类
@@ -19,6 +19,7 @@ trait Log
 
     protected static function loggers($message,$type='info')
     {
+        return;
         SlogUnit::slog($message,$type);
         $_type = strtolower($type);
         \Illuminate\Support\Facades\Log::$_type($message);

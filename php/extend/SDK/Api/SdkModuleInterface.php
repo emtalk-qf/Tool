@@ -1,5 +1,5 @@
 <?php
-namespace App\Http\Sdk;
+namespace App\Sdk;
 use Illuminate\Http\Request;
 
 /**

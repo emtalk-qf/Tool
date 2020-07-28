@@ -1,5 +1,5 @@
 <?php
-namespace App\Http\Sdk\Traits;
+namespace App\Sdk\Traits;
 
 trait Config
 {

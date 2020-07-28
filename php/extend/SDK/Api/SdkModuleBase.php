@@ -1,10 +1,10 @@
 <?php
-namespace App\Http\Sdk;
+namespace App\Sdk;
 
-use App\Http\Sdk\Traits\Config as SdkConfig;
-use App\Http\Sdk\Traits\Handler as SdkHandler;
-use App\Http\Sdk\Traits\Log as SdkLog;
-use App\Http\Sdk\Traits\Auth as SdkAuth;
+use App\Sdk\Traits\Config as SdkConfig;
+use App\Sdk\Traits\Handler as SdkHandler;
+use App\Sdk\Traits\Log as SdkLog;
+use App\Sdk\Traits\AuthUser as SdkAuth;
 
 class SdkModuleBase
 {

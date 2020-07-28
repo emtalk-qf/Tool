@@ -1,20 +1,14 @@
 <?php
-namespace App\Http\Sdk;
+namespace App\Sdk;
 use App\Http\Controllers\BaseController AS Controller;
-use app\Http\Controllers\Home\GameController;
+use App\Sdk\SdkAuth;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Arr;
-use App\Http\Sdk\Traits\Auth as SdkAuth;
-use App\Http\Sdk\Traits\Handler AS SdkHandler;
-use App\Http\Sdk\Traits\Config AS SdkConfig;
-use App\Http\Sdk\Traits\Log AS SdkLog;
-use App\Helper\Tools\Fun;
-use App\Helper\Tools\Rsa;
-use App\Model\GameModel AS mGame;
-use App\Model\SystemSdkTokenModel AS SysSdkToken;
-use App\Model\SystemSdkRsaModel   AS SysSdkRsa;
-use App\Model\SystemSdkTokenGameModel AS SysSdkTokenGame;
+use App\Sdk\Unit\Fun;
+use App\Sdk\Traits\Handler AS SdkHandler;
+use App\Sdk\Traits\Config AS SdkConfig;
+use App\Sdk\Traits\Log AS SdkLog;
 
 /**
  * SDK相关管理控制器 SDK API网关调度类
@@ -25,17 +19,14 @@ use App\Model\SystemSdkTokenGameModel AS SysSdkTokenGame;
 class GatewayController extends Controller
 {
     use SdkHandler,SdkConfig,
-        SdkLog,SdkAuth;
+        SdkLog;
 
     # 是否为开发模式(根据.env内配置自动变化)
     private $app_debug = false;
     # 客户端应用ID
     private $app_id;
     # 接口名称(白名单列表)
-    private $method    = [
-//        'dk.trade.query',    // 交易查询接口
-//        'dk.trade.close',    // 交易关闭接口
-    ];
+    private $method    = [];
     # 响应返回支持格式列表
     private $format    = ['JSON'];
     # 请求使用的编码
@@ -47,23 +38,18 @@ class GatewayController extends Controller
     # 授权字段名称
     private $token_name = 'access_token';
     # 公共调用参数(公共必填参数,Token字段给名称会自动追加)
-    private $common_param = ['app_id', 'method','format','charset','sign_type','sign','timestamp','version','openinstall','gkey'];
+    private $common_param = ['app_id', 'method','format','charset','sign_type','sign','timestamp','version','channel','gkey'];
     # 内部调用参数
     private $parameter = [];
     # 模块路径
-    private $_modulePath = '\\App\\Http\\Sdk\\Module\\';
-    # 接口白名单缓存时间（秒/s） 开发时为：60 , 生产环境为604800
-    private $_methodCacheTime = 60;
+    private $_modulePath = '';
+    # 接口白名单缓存时间（秒/s） 生产环境为604800
+    private $_methodCacheTime = 604800;
 
     public function __construct()
     {
         parent::__construct();
-        # 调试模式，执行run方法会根据授权APPID具体配置信息进行动态调整
-        $this->app_debug = env('APP_DEBUG',false);
-        # 可用白名单接口构建初始化
-        $this->_usableModuleList();
-        $this->setTokenName($this->token_name);
-        self::setConfigs('tokenName',$this->token_name);
+        $this->_inits();
     }
 
     public function run(Request $request) : array
@@ -72,7 +58,8 @@ class GatewayController extends Controller
         if(!$this->restrictiveStrategy())return $this->apiReturn('INVALID_TOKEN',[],'isp.service-limit');
         # 请求参数安检
         $_isIniParam = $this->initParameter($request);
-        if($_isIniParam!=null || !is_null($_isIniParam))return $_isIniParam;
+        if(!empty($_isIniParam))return $_isIniParam;
+        unset($_isIniParam);
         # 调起子模块运行
         return $this->initAppRun($request,$this->parameter['common']['method']);
     }
@@ -81,7 +68,7 @@ class GatewayController extends Controller
     {
         # 请求拦截策略检测
         if(!$this->restrictiveStrategy())return $this->apiReturn('INVALID_TOKEN',[],'isp.service-limit');
-        app('view')->prependNamespace('sdk',app_path('Http/Sdk/views'));
+        app('view')->prependNamespace('sdk',app_path('Sdk/views'));
         $_type = $request->input('type',null);
         if( $_type == 'pay_view' ){
             $_code = $request->input('code',null);
@@ -110,6 +97,19 @@ class GatewayController extends Controller
             $_viewVar['data'] = $_cacheData;
         }
         return view('sdk::viewRun',$_viewVar);
+    }
+
+    private function _inits()
+    {
+        # 初始化模块位置
+        $this->_modulePath = '\\'.str_replace('GatewayController','Module',__CLASS__).'\\';
+
+        # 调试模式，执行run方法会根据授权APPID具体配置信息进行动态调整
+        $this->app_debug = env('APP_DEBUG',false);
+        # 可用白名单接口构建初始化
+        $this->_usableModuleList();
+//        $this->setTokenName($this->token_name);
+        self::setConfigs('tokenName',$this->token_name);
     }
 
     /**
@@ -218,8 +218,8 @@ class GatewayController extends Controller
             $_isHas = 'timestamp';
         }elseif (!$request->filled('version')) { // SDK版本
             $_isHas = 'version';
-        }elseif (!$request->filled('openinstall')) { // 渠道标识
-            $_isHas = 'openinstall';
+        }elseif (!$request->filled('channel')) { // 渠道标识
+            $_isHas = 'channel';
         }elseif (!$request->filled('gkey')) { // 游戏标识
             $_isHas = 'gkey';
         }
@@ -255,42 +255,29 @@ class GatewayController extends Controller
         }
         unset($_data);
 
+        // 初始化SdkAuth实例
+        $this->app_id = $request->input('app_id',null);
+        SdkAuth::getIns($this->app_id);
+
         # 检查签名
-        if( !$this->verificationSign($request->all()) ){
+        if( !SdkAuth::verificationSign($request->all()) ){
             return $this->apiReturn('INVALID_PARAMETER',[],'isv.invalid-signature','无效签名');
         }
         $request->offsetUnset('sign');
 
         # 检查APPID
-        $_data = $this->app_id = $request->input('app_id',null);
-        $_data = SysSdkToken::getFirstInfo($_data,'appid',['state','isdebug']);
-        $this->app_debug = boolval($_data['isdebug']);
-        if( !isset($_data['state']) ){
-            $_data = false;
+        if( SdkAuth::appidVerify() ){
+            $this->app_debug = boolval(SdkAuth::getAuthInfo()->is_debug);
         }else{
-            $_data = 1 === $_data['state'] ? true : false;
+            return $this->apiReturn('INVALID_PARAMETER',[],'isv.invalid-app-id','检查入参app_id，app_id不存在，或者未上线');
         }
-        if( $_data === false )return $this->apiReturn('INVALID_PARAMETER',[],'isv.invalid-app-id','检查入参app_id，app_id不存在，或者未上线');
-        unset($_data);
 
         # 检查游戏授权许可
         $_data = $request->input('gkey',null);
-        $_data = mGame::getFirstInfo($_data,'alias',['id','state','isdebug']);
-        if( empty($_data['id']) ){
-            return $this->apiReturn('INVALID_TOKEN',[],'isv.invalid-gkey','授权游戏不存在，请联系相关员了解');
+        if( !SdkAuth::gameAuthVerify($_data) ){
+            return $this->apiReturn('INVALID_TOKEN',[],'isv.invalid-gkey','授权游戏暂未开放或不存在，请联系相关员了解');
         }
-        if( true !== $this->app_debug ){
-            if( -1 == $_data['state'] ){ // 游戏为关闭状态
-                if( $_data['isdebug'] !== 1 ){ // 非开发模式
-                    return $this->apiReturn('INVALID_TOKEN',[],'isv.invalid-gkey','授权游戏未上线，请联系相关员了解');
-                }
-            }
-        }
-        $_tokenGame = SysSdkTokenGame::getWhereFirstInfo(['appid'=>$this->app_id,'gid'=>$_data['id']],['id','gid']);
-        if( empty($_tokenGame['id']) ){
-            return $this->apiReturn('INVALID_TOKEN',[],'isv.invalid-gkey','未有授权游戏，请联系相关员开通');
-        }
-        unset($_data,$_tokenGame);
+        unset($_data);
 
         # 公共请求参数
         $this->parameter['common'] = $request->only(array_merge($this->common_param,[$this->token_name]));
@@ -306,7 +293,111 @@ class GatewayController extends Controller
             }
         }
         $this->logger('[SDK -> 初始化参数]$parameter：'.var_export($this->parameter,true));
-        return;
+        return [];
+    }
+
+    /**
+     * apiReturn API统一响应调用方法
+     *
+     * @access  private
+     * @version 1.0.0
+     * @author  Yunuo <ciwdream@gmail.com>
+     *
+     * @param string $code      // API公共错误码
+     * @param string $sub_code  // API业务错误码(明细返回码)
+     * @param string $sub_msg   // API业务错误码(明细返回码描述)
+     *
+     * @return  array
+     */
+    private function apiReturn($code='',array $data=[],$sub_code='',$sub_msg='') : array
+    {
+        if( empty($code) && empty($data) && empty($sub_code) && empty($sub_msg) ){
+            extract(self::getError());
+        }
+        $_rs = [];
+        $_code = Fun::getEnum('CODE.'.$code);
+        try{
+            $_rs['code'] = $_code[0];
+            $_rs['msg'] = $_code[1];
+        }catch (\Exception $e)
+        {
+            $_code = Fun::getEnum('ENUM_SDK_CODE.INVALID_PARAMETER');
+            $_rs['code'] = $_code[0];
+            $_rs['msg'] = $_code[1];
+        }
+        unset($_code);
+        if( !empty($sub_code) ){
+            $_rs['sub_code'] = $sub_code;
+            $_rs['sub_msg']  = $sub_msg;
+        }
+        if( !empty($data) ){
+            $_rs = array_merge($_rs,$data);
+        }
+        return $_rs;
+    }
+
+    /**
+     * restrictiveStrategy API请求拦截策略
+     *
+     * @access  private
+     * @version 1.0.0
+     * @author  Yunuo <ciwdream@gmail.com>
+     *
+     * @return  bool
+     */
+    private function restrictiveStrategy() : bool
+    {
+        return true;
+    }
+
+    /**
+     * isFieldRxist API传参判断必填参数是否填写
+     *
+     * @access  private
+     * @version 1.0.0
+     * @author  Yunuo <ciwdream@gmail.com>
+     *
+     * @param array  $must  需要验证的必填字段(一维数组)
+     * @param array  $data  可传入参数进行数据验证
+     *
+     * @return  array
+     */
+    private function isFieldRxist(array $must = [],array $data = [])
+    {
+        if( empty($data) ){
+            return [];
+        }
+        # 判断必填项是否存在
+        $must = !empty($must) ? $must : ['sign'];
+        foreach ($must AS $field => $value)
+        {
+            if( is_string($field) ){
+                if( !$this->_formValidator($field,$value) ){
+                    return $field;
+                }
+            }else{
+                if( !isset($data[ $value ]) || empty($data[ $value ]) ){
+                    return $value;
+                }
+            }
+        }
+        return $data;
+    }
+
+    /**
+     * getMethodClass 获取白名单接口对应类路径(命名空间路径)
+     *
+     * @access  private
+     * @version 1.0.0
+     * @author  Yunuo <ciwdream@gmail.com>
+     *
+     * @param string  $name   接口名称
+     *
+     * @return  string
+     */
+    private function getMethodClass($name) : string
+    {
+        return isset($this->method[$name]) ? $this->method[$name] : '';
     }
 
     /**
@@ -373,150 +464,6 @@ class GatewayController extends Controller
         }
         unset($_isFieldRxist);
         return true;
-    }
-
-    /**
-     * apiReturn API统一响应调用方法
-     *
-     * @access  private
-     * @version 1.0.0
-     * @author  Yunuo <ciwdream@gmail.com>
-     *
-     * @param string $code      // API公共错误码
-     * @param string $sub_code  // API业务错误码(明细返回码)
-     * @param string $sub_msg   // API业务错误码(明细返回码描述)
-     *
-     * @return  array
-     */
-    private function apiReturn($code='',array $data=[],$sub_code='',$sub_msg='') : array
-    {
-        if( empty($code) && empty($data) && empty($sub_code) && empty($sub_msg) ){
-            extract(self::getError());
-        }
-        $_rs = [];
-        $_code = self::getEnum('ENUM_SDK_CODE.'.$code);
-        try{
-            $_rs['code'] = $_code[0];
-            $_rs['msg'] = $_code[1];
-        }catch (\Exception $e)
-        {
-            $_code = self::getEnum('ENUM_SDK_CODE.INVALID_PARAMETER');
-            $_rs['code'] = $_code[0];
-            $_rs['msg'] = $_code[1];
-        }
-        unset($_code);
-        if( !empty($sub_code) ){
-            $_rs['sub_code'] = $sub_code;
-            $_rs['sub_msg']  = $sub_msg;
-        }
-        if( !empty($data) ){
-            $_rs = array_merge($_rs,$data);
-        }
-        return $_rs;
-    }
-
-    /**
-     * verificationSign API传参签名校验
-     *
-     * @access  private
-     * @version 1.0.0
-     * @author  Yunuo <ciwdream@gmail.com>
-     *
-     * @param string $sign      // 待验签SIGN字符串
-     * @param string $appid     // 应用ID
-     *
-     * @return  boolean
-     */
-    private function verificationSign($request) : bool
-    {
-        if(empty($request['sign']))return false;
-        $_data = array_filter($request);
-        $_sign   = $request['sign'];
-        unset($_data['sign']);
-        ksort($_data);
-//        $_data['biz_content'] = rawurldecode($_data['biz_content']);
-//        $_data['timestamp'] = rawurldecode($_data['timestamp']);
-        $_rsaInfo = SysSdkRsa::getFirstInfo($request['app_id'],'appid',['md5_key','rsa_private_key','rsa_public_key']);
-        switch ($request['sign_type'])
-        {
-            case 'MD5':
-                $_str = http_build_query($_data,'',ini_get('arg_separator.output'),PHP_QUERY_RFC3986).'#'.$_rsaInfo['md5_key'];
-                $_verifiMD5 = strtoupper(md5($_str));
-                unset($_str);
-                self::loggers('[SDK -> verificationSign]MD5:'.$_verifiMD5);
-                return $_verifiMD5 == $_sign ? true : false;
-                break;
-            case 'RSA2':
-//                dump(Rsa::createSign(http_build_query($_data),$_rsaInfo['rsa_private_key']));
-                self::loggers('[SDK -> verificationSign]RSA2:'.Rsa::createSign(http_build_query($_data),$_rsaInfo['rsa_private_key']));
-                return Rsa::verifySign(http_build_query($_data),$_sign,$_rsaInfo['rsa_public_key']);
-                break;
-        }
-        return false;
-    }
-
-    /**
-     * restrictiveStrategy API请求拦截策略
-     *
-     * @access  private
-     * @version 1.0.0
-     * @author  Yunuo <ciwdream@gmail.com>
-     *
-     * @return  bool
-     */
-    private function restrictiveStrategy() : bool
-    {
-        return true;
-    }
-
-    /**
-     * isFieldRxist API传参判断必填参数是否填写
-     *
-     * @access  private
-     * @version 1.0.0
-     * @author  Yunuo <ciwdream@gmail.com>
-     *
-     * @param array  $must  需要验证的必填字段(一维数组)
-     * @param array  $data  可传入参数进行数据验证
-     *
-     * @return  array
-     */
-    private function isFieldRxist(array $must = [],array $data = [])
-    {
-        if( empty($data) ){
-            return [];
-        }
-        # 判断必填项是否存在
-        $must = !empty($must) ? $must : ['sign'];
-        foreach ($must AS $field => $value)
-        {
-            if( is_string($field) ){
-                if( !$this->_formValidator($field,$value) ){
-                    return $field;
-                }
-            }else{
-                if( !isset($data[ $value ]) || empty($data[ $value ]) ){
-                    return $value;
-                }
-            }
-        }
-        return $data;
-    }
-
-    /**
-     * getMethodClass 获取白名单接口对应类路径(命名空间路径)
-     *
-     * @access  private
-     * @version 1.0.0
-     * @author  Yunuo <ciwdream@gmail.com>
-     *
-     * @param string  $name   接口名称
-     *
-     * @return  string
-     */
-    private function getMethodClass($name) : string
-    {
-        return isset($this->method[$name]) ? $this->method[$name] : null;
     }
 
     /**
@@ -612,7 +559,6 @@ class GatewayController extends Controller
     {
         $_cacheName = 'SDK_ModuleList_WhiteList';
         if( !Redis::exists($_cacheName) ){
-            $this->_methodCacheTime = $this->app_debug === true ? 60 : 604800;
             $_modulePath = app_path(substr(str_replace('\\','/',$this->_modulePath),4));
             config(['filesystems.disks.sdk_module'=>[
                 'driver' => 'local',
@@ -626,7 +572,7 @@ class GatewayController extends Controller
                     return '.'.strtolower($matches[1]);
                 },basename($fileName,".php")),1);
                 $this->method[$_class] = $this->_modulePath.basename($fileName,".php");
-                Redis::setex($_cacheName,$this->_methodCacheTime,json_encode($this->method));
+                $this->app_debug ? null : Redis::setex($_cacheName,$this->_methodCacheTime,json_encode($this->method));
             }
         }else{
             $this->method = json_decode(Redis::get($_cacheName),true);

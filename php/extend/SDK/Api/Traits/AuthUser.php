@@ -1,8 +1,8 @@
 <?php
-namespace App\Http\Sdk\Traits;
+namespace App\Sdk\Traits;
 use App\Model\SystemUserModel as mSysUser;
 
-trait Auth
+trait AuthUser
 {
     # 授权Token用户信息
     protected $_authUser = [];
