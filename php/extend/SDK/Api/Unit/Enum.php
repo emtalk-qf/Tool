@@ -62,7 +62,7 @@ abstract class Enum
             self::populateConstants();
         }
 
-        if ($initialValue === null) {
+        if ($initialValue === null || empty($initialValue)) {
             $initialValue = self::$constants[$class]["__default"];
         }
 

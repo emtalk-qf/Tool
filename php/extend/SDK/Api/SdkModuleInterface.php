@@ -32,25 +32,31 @@ interface SdkModuleInterface
      * 设置公共参数
      *
      * @param array $commonParam
+     *
+     * @return void
      */
     public function setCommonParam(array $commonParam) : void;
     /**
      * 获取公共参数
      *
+     * @param string $name // (可选)key名称，支持“点”
+     * @return mixed
      */
-    public function getCommonParam();
+    public function getCommonParam($name=null);
     /**
      * 设置业务参数
      *
      * @param mixed $bizContent
+     * @return bool
      */
-    public function setBizContent($bizContent) : void;
+    public function setBizContent($bizContent) : bool ;
     /**
      * 获取业务参数
      *
-     * @param mixed $bizContent
+     * @param string $name // (可选)key名称，支持“点”
+     * @return mixed
      */
-    public function getBizContent();
+    public function getBizContent($name=null);
 
     /**
      * 错误统一回调方法

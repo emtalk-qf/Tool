@@ -31,7 +31,11 @@ class Fun
     {
         list($file,$field) = explode('.',$enumName);
         $_enumClass = '\App\Sdk\Enum\\'.$file;
-        $_test = new $_enumClass($field);
+        try {
+            $_test = new $_enumClass($field);
+        }catch (\Exception $exception){
+            return [20000,'服务不可用'];
+        }
         return $_test->getValue();
     }
 

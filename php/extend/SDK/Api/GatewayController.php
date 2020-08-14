@@ -45,6 +45,8 @@ class GatewayController extends Controller
     private $_modulePath = '';
     # 接口白名单缓存时间（秒/s） 生产环境为604800
     private $_methodCacheTime = 604800;
+    # SDK
+    private $_sdkAuthInfo = [];
 
     public function __construct()
     {
@@ -108,7 +110,7 @@ class GatewayController extends Controller
         $this->app_debug = env('APP_DEBUG',false);
         # 可用白名单接口构建初始化
         $this->_usableModuleList();
-//        $this->setTokenName($this->token_name);
+        $this->setTokenName($this->token_name);
         self::setConfigs('tokenName',$this->token_name);
     }
 
@@ -156,6 +158,10 @@ class GatewayController extends Controller
         // 验证必填字段是否传参
         if( !empty($_app->sub_must) ){
             if( !$this->_subMustParameter($_app->sub_must) ){
+                if( !self::isError() ){
+                    self::$Handler = $_app->_handler();
+                }
+                self::logger('[SDK -> initAppRun]验证必填字段是否传参，子模块：'.get_class($_app).'运行触发异常，模块内错误：'.var_export(self::$Handler,true),'notice');
                 return $this->apiReturn();
             }
         }
@@ -163,8 +169,14 @@ class GatewayController extends Controller
         // 为子模块赋外部传参
         $_app->setCommonParam($this->parameter['common']);
         if( !empty($this->parameter['business']) ){
-            $_app->setBizContent($this->parameter['business']);
+            if(!$_app->setBizContent($this->parameter['business'])){
+                self::$Handler = $_app->_handler();
+                self::logger('[SDK -> initAppRun]为子模块赋外部传参，子模块：'.get_class($_app).'运行触发异常，模块内错误：'.var_export(self::$Handler,true),'notice');
+                return $this->apiReturn();
+            }
         }
+
+        $_app->sdkinfo = $this->_sdkAuthInfo;
 
         // 等待子模块处理结果
         try {
@@ -261,6 +273,7 @@ class GatewayController extends Controller
 
         # 检查签名
         if( !SdkAuth::verificationSign($request->all()) ){
+            self::loggers('[SDK -> 初始化参数]校验未通过','warning');
             return $this->apiReturn('INVALID_PARAMETER',[],'isv.invalid-signature','无效签名');
         }
         $request->offsetUnset('sign');
@@ -278,6 +291,8 @@ class GatewayController extends Controller
             return $this->apiReturn('INVALID_TOKEN',[],'isv.invalid-gkey','授权游戏暂未开放或不存在，请联系相关员了解');
         }
         unset($_data);
+
+        $this->_sdkAuthInfo['sdkAuth'] = SdkAuth::getAuthInfo();
 
         # 公共请求参数
         $this->parameter['common'] = $request->only(array_merge($this->common_param,[$this->token_name]));
@@ -321,7 +336,7 @@ class GatewayController extends Controller
             $_rs['msg'] = $_code[1];
         }catch (\Exception $e)
         {
-            $_code = Fun::getEnum('ENUM_SDK_CODE.INVALID_PARAMETER');
+            $_code = Fun::getEnum('CODE.INVALID_PARAMETER');
             $_rs['code'] = $_code[0];
             $_rs['msg'] = $_code[1];
         }
@@ -376,7 +391,9 @@ class GatewayController extends Controller
                     return $field;
                 }
             }else{
-                if( !isset($data[ $value ]) || empty($data[ $value ]) ){
+                if( !isset($data[ $value ]) ||
+                    (empty($data[ $value ]) && !is_numeric($data[ $value ])) ){
+                    self::setError('MISSING_SIGNATURE','isv.missing-'.str_replace('_','-',$value),'检查请求参数，缺少'.$value.'参数或参数值不正确');
                     return $value;
                 }
             }

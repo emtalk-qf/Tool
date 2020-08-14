@@ -31,9 +31,10 @@ class Init extends SdkModuleBase implements SdkModuleInterface
         $this->apiParam['common_param'] = $commonParam;
     }
 
-    public function getCommonParam()
+    public function getCommonParam($name=null)
     {
-        return $this->common_param;
+        if(is_null($name))return $this->common_param;
+        return data_get($this->common_param,$name);
     }
 
     public function setBizContent($bizContent) : void
@@ -42,9 +43,10 @@ class Init extends SdkModuleBase implements SdkModuleInterface
         $this->apiParam['biz_content'] = $bizContent['biz_content'];
     }
 
-    public function getBizContent()
+    public function getBizContent($name=null)
     {
-        return $this->bizContent;
+        if(is_null($name))return $this->bizContent;
+        return data_get($this->bizContent,$name);
     }
 
 }

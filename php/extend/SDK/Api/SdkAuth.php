@@ -31,6 +31,9 @@ class SdkAuth
     /**
      * 获取SdkAuth实例
      *
+     * @access  public
+     * @version 1.0.0
+     *
      * @param string $appid  被授权APPID
      *
      * @return object
@@ -57,6 +60,8 @@ class SdkAuth
 
     /**
      * 验证授权游戏
+     *
+     * @param string $gkey 游戏标识
      *
      * @return bool
      */
@@ -101,18 +106,19 @@ class SdkAuth
         $_data = array_filter($data);
         $_sign   = $data['sign'];
         unset($_data['sign']);
-        ksort($data);
-//        $_data['biz_content'] = rawurldecode($_data['biz_content']);
-//        $_data['timestamp'] = rawurldecode($_data['timestamp']);
+        ksort($_data);
+        if( isset($_data['biz_content']) )$_data['biz_content']=rawurldecode($_data['biz_content']);
+        $_data['timestamp'] = rawurldecode($_data['timestamp']);
         $_rsaInfo = self::$auth->toArray();
         switch ($data['sign_type'])
         {
             case 'MD5':
                 if( empty($_rsaInfo['md5_key']) )return false;
                 $_str = http_build_query($_data,'',ini_get('arg_separator.output'),PHP_QUERY_RFC3986).'#'.$_rsaInfo['md5_key'];
+                self::loggers('[SDK -> verificationSign]MD5之前:'.$_str);
                 $_verifiMD5 = strtoupper(md5($_str));
                 unset($_str);
-                self::loggers('[SDK -> verificationSign]MD5:'.$_verifiMD5);
+                self::loggers('[SDK -> verificationSign]MD5之后:'.$_verifiMD5);
                 return $_verifiMD5 == $_sign ? true : false;
                 break;
             case 'RSA2':

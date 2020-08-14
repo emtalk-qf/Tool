@@ -1,6 +1,5 @@
 <?php
 namespace App\Sdk\Traits;
-use App\Enum\ENUM_SDK_CODE AS E_CODE;
 /**
  * SDK 错误处理类
  *

@@ -4,14 +4,13 @@ namespace App\Sdk;
 use App\Sdk\Traits\Config as SdkConfig;
 use App\Sdk\Traits\Handler as SdkHandler;
 use App\Sdk\Traits\Log as SdkLog;
-use App\Sdk\Traits\AuthUser as SdkAuth;
+//use App\Sdk\Traits\AuthUser as SdkAuth;
 
 class SdkModuleBase
 {
     use SdkHandler,
         SdkConfig,
-        SdkLog,
-        SdkAuth;
+        SdkLog;
 
     public function __construct()
     {
